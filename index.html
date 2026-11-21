@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0B1F3A">
+<title>Finanças do Casal</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--navy:#0B1F3A;--bg:#F2F5F9;--line:#E3E9F1;--mut:#5B6B80;--green:#0B6B50;--red:#A3261B;--field:#7C8EA8}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--navy);font-family:'Inter',system-ui,sans-serif;-webkit-tap-highlight-color:transparent}
+button,input,select{font-family:inherit;color:inherit}
+#app{max-width:480px;margin:0 auto;min-height:100vh;padding-bottom:40px}
+.top{position:sticky;top:0;z-index:30;background:var(--bg);border-bottom:1px solid var(--line);padding:10px 12px;display:flex;align-items:center;gap:8px}
+.top h1{margin:0;font-size:18px;flex:1}
+.sync{font-size:11px;color:var(--mut)}
+.icon{width:44px;height:44px;border-radius:12px;border:1px solid #D9E0EA;background:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
+.sec{margin:16px 20px 0;background:#fff;border:1px solid var(--line);border-radius:20px;padding:20px;display:flex;flex-direction:column;gap:12px}
+.sec h2{margin:0;font-size:14px;font-weight:600}
+.dark{margin:16px 20px 0;background:var(--navy);color:#fff;border-radius:20px;padding:20px}
+.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.opt{min-height:48px;border-radius:14px;border:1px solid var(--field);background:#fff;font-size:14px;font-weight:600;cursor:pointer;padding:0 12px}
+.opt.on{background:var(--navy);border-color:var(--navy);color:#fff}
+.chip{min-height:44px;padding:0 16px;border-radius:22px;border:1px solid var(--field);background:#fff;font-size:13px;font-weight:600;cursor:pointer}
+.chip.on{background:var(--navy);border-color:var(--navy);color:#fff}
+.chip.q{border-color:var(--green);background:#E6F3EE;color:var(--green)}
+.wrap{display:flex;flex-wrap:wrap;gap:8px}
+.in{width:100%;height:52px;border:1px solid var(--field);border-radius:12px;padding:0 14px;font-size:16px;background:#fff}
+.big{height:60px;font-size:28px;font-weight:700;border-radius:14px;font-variant-numeric:tabular-nums}
+.card{display:grid;grid-template-columns:32px minmax(0,1fr);gap:12px;align-items:center;text-align:left;min-height:60px;border-radius:14px;border:2px solid #D9E0EA;background:#fff;padding:8px 14px;cursor:pointer;width:100%}
+.card.on{border-color:var(--navy);background:#EEF3F9}
+.card i{width:32px;height:22px;border-radius:5px;display:block}
+.card b{font-size:14px;display:block}.card small{font-size:12px;color:var(--mut)}
+.main{min-height:52px;border-radius:16px;border:0;background:var(--navy);color:#fff;font-size:16px;font-weight:600;cursor:pointer}
+.main:disabled{opacity:.45;cursor:default}
+.sub{font-size:12px;line-height:1.4;color:var(--mut);margin:0}
+.prev{background:#EEF3F9;border-radius:12px;padding:12px;font-size:13px;line-height:1.5}
+.ok{margin:16px 20px 0;background:#E6F3EE;border:1px solid #9CCDB8;border-radius:16px;padding:14px 16px;font-size:14px;font-weight:600;color:#0B3D2E;line-height:1.4}
+.err{margin:12px 0 0;color:var(--red);font-size:14px}
+.lbl{font-size:13px;font-weight:500;color:var(--mut)}
+.step{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.step button{width:44px;height:44px;border-radius:12px;border:1px solid var(--field);background:#fff;font-size:20px;cursor:pointer}
+.item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center;min-height:56px;border-top:1px solid var(--line);padding:6px 0}
+.item b{font-size:14px;display:block}.item small{font-size:12px;color:var(--mut)}
+.pos{color:var(--green)}.neg{color:var(--red)}
+.link{min-height:44px;border:0;background:transparent;font-size:13px;font-weight:600;color:var(--green);cursor:pointer;padding:0 4px}
+.del{color:var(--red)}
+.conf{border:1px solid #D9A5A0;background:#FDF3F2;border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:10px;font-size:14px}
+.drawer{position:fixed;inset:0;z-index:100;display:flex}
+.drawer nav{width:290px;max-width:80%;background:var(--navy);color:#fff;padding:16px 12px;display:flex;flex-direction:column;gap:4px}
+.drawer nav a{min-height:48px;display:flex;align-items:center;padding:0 12px;border-radius:12px;color:#E4ECF7;font-size:15px;font-weight:600;cursor:pointer}
+.drawer nav a.on{background:#1B3A63;color:#4ADE9A}
+.drawer .sh{flex:1;border:0;background:rgba(11,31,58,.55)}
+.cal{border:1px solid #D9E0EA;border-radius:16px;padding:12px;display:flex;flex-direction:column;gap:6px}
+.cal .g{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:2px}
+.cal .d{height:44px;border-radius:22px;border:1px solid transparent;background:#fff;font-size:14px;cursor:pointer;padding:0}
+.cal .d.on{background:var(--navy);color:#fff}.cal .d.t{border-color:var(--green);color:var(--green);font-weight:700}.cal .d.on.t{color:#fff}
+.cal .h{text-align:center;font-size:12px;font-weight:600;color:var(--mut)}
+.cal .f{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border-top:1px solid var(--line);padding-top:6px}
+.cal .f button{min-height:48px;border:0;background:transparent;font-size:14px;font-weight:600;cursor:pointer}
+.login{padding:48px 20px}
+.login h1{font-size:24px;margin:0 0 4px}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script type="module" src="app.js"></script>
+<script>if('serviceWorker' in navigator){addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}))}</script>
+</body>
+</html>
