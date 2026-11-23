@@ -15,8 +15,8 @@
 body{margin:0;background:var(--bg);color:var(--navy);font-family:'Inter',system-ui,sans-serif;-webkit-tap-highlight-color:transparent}
 button,input,select{font-family:inherit;color:inherit}
 #app{max-width:480px;margin:0 auto;min-height:100vh;padding-bottom:40px}
-.top{position:sticky;top:0;z-index:30;background:var(--bg);border-bottom:1px solid var(--line);padding:10px 12px;display:flex;align-items:center;gap:8px}
-.top h1{margin:0;font-size:18px;flex:1}
+.top{position:sticky;top:0;z-index:30;background:var(--bg);border-bottom:1px solid var(--line);padding:10px 12px 12px}
+.top h1{margin:0;font-size:18px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sync{font-size:11px;color:var(--mut)}
 .icon{width:44px;height:44px;border-radius:12px;border:1px solid #D9E0EA;background:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
 .sec{margin:16px 20px 0;background:#fff;border:1px solid var(--line);border-radius:20px;padding:20px;display:flex;flex-direction:column;gap:12px}
@@ -52,7 +52,7 @@ button,input,select{font-family:inherit;color:inherit}
 .conf{border:1px solid #D9A5A0;background:#FDF3F2;border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:10px;font-size:14px}
 .drawer{position:fixed;inset:0;z-index:100;display:flex}
 .drawer nav{width:290px;max-width:80%;background:var(--navy);color:#fff;padding:16px 12px;display:flex;flex-direction:column;gap:4px}
-.drawer nav a{min-height:48px;display:flex;align-items:center;padding:0 12px;border-radius:12px;color:#E4ECF7;font-size:15px;font-weight:600;cursor:pointer}
+.drawer nav a{gap:12px;min-height:48px;display:flex;align-items:center;padding:0 12px;border-radius:12px;color:#E4ECF7;font-size:15px;font-weight:600;cursor:pointer}
 .drawer nav a.on{background:#1B3A63;color:#4ADE9A}
 .drawer .sh{flex:1;border:0;background:rgba(11,31,58,.55)}
 .cal{border:1px solid #D9E0EA;border-radius:16px;padding:12px;display:flex;flex-direction:column;gap:6px}
@@ -83,6 +83,23 @@ button,input,select{font-family:inherit;color:inherit}
 .ag .dots{display:flex;gap:2px;height:6px}
 .ag .dots i{width:6px;height:6px;border-radius:3px}
 .ag .g{background:#0B7A5C}.ag .y{background:#D98E04}.ag .r{background:#A3261B}
+.trow{display:grid;grid-template-columns:44px minmax(0,1fr) auto;align-items:center;gap:8px}
+.ttl{min-width:0;display:flex;align-items:baseline;gap:8px;flex-wrap:nowrap}
+.mchip{font-size:12px;font-weight:500;color:var(--mut);white-space:nowrap}
+.mpanel{position:absolute;left:0;right:0;top:100%;height:84px;box-sizing:border-box;background:var(--bg);border-bottom:1px solid var(--line);padding:8px 20px 0;overflow:hidden}
+.mgrid{display:grid;grid-template-columns:44px minmax(0,1fr) 44px;align-items:center;gap:8px}
+.spacer{height:84px;flex:none}
+.hoje{margin-top:4px;min-height:30px;padding:0 14px;border-radius:15px;border:1px solid var(--green);background:#E6F3EE;color:var(--green);font-size:12px;font-weight:600;cursor:pointer}
+.hoje:disabled{border-color:#D9E0EA;background:#fff;color:var(--mut);cursor:default}
+[hidden]{display:none!important}
+.ccard{aspect-ratio:1.586;min-height:200px;border-radius:22px;padding:22px;color:#fff;display:flex;flex-direction:column;justify-content:space-between;background-image:linear-gradient(135deg,rgba(255,255,255,.2),rgba(0,0,0,.22));box-shadow:0 6px 16px rgba(11,31,58,.25)}
+.cchip{width:38px;height:28px;border-radius:6px;background:linear-gradient(135deg,#F1D88A,#C9A24A)}
+.shorts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.sc{min-height:80px;border-radius:16px;border:1px solid #D9E0EA;background:#fff;color:var(--navy);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:8px 4px;cursor:pointer}
+.sc small{font-size:12px;font-weight:600;text-align:center;line-height:1.2}
+.chk{display:flex;align-items:center;gap:12px;min-height:44px;font-size:14px;font-weight:600}
+.chk input{width:24px;height:24px;accent-color:#0B6B50;flex:none}
+.step button.link{width:auto;height:auto;min-height:44px;border:0;background:transparent;padding:0 4px;white-space:nowrap;font-size:13px}
 </style>
 </head>
 <body>

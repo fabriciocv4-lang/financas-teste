@@ -1,5 +1,5 @@
 // Guarda o app no aparelho para abrir mesmo sem internet.
-const CACHE = 'financas-v2';
+const CACHE = 'financas-v4';
 const SHELL = ['./', './index.html', './app.js', './firebase-config.js', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));

@@ -3,7 +3,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/fireba
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
-  collection, doc, addDoc, deleteDoc, setDoc, updateDoc, onSnapshot, query, orderBy, serverTimestamp,
+  collection, doc, addDoc, deleteDoc, setDoc, updateDoc, deleteField, onSnapshot, query, orderBy, serverTimestamp,
 } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 import { firebaseConfig } from "./firebase-config.js";
 
@@ -35,7 +35,7 @@ const fmtNum = (n) => n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maxi
 const todayISO = () => { const d = new Date(); return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()); };
 const parts = (iso) => iso.split("-").map(Number);
 const cycleIdx = (iso) => { const [y, m, d] = parts(iso); return y * 12 + (m - 1) + (d > 30 ? 1 : 0); };
-const dueLabel = (am, k) => { const t = am + 1 + k; return "10/" + ABR[t % 12] + "/" + String(Math.floor(t / 12)).slice(2); };
+const dueLabel = (am, k, dia = 10) => { const t = am + 1 + k; return dia + "/" + ABR[t % 12] + "/" + String(Math.floor(t / 12)).slice(2); };
 const dateLong = (iso) => { const [y, m, d] = parts(iso); return DOW[new Date(y, m - 1, d).getDay()] + ", " + d + " de " + ABR[m - 1] + ". de " + y; };
 const dateShort = (iso) => { const [, m, d] = parts(iso); return pad(d) + " " + ABR[m - 1]; };
 
@@ -110,17 +110,17 @@ function previewText() {
   const dl = dateLong(f.data);
   if (c.rec) return [c.total ? `Receita em ${dl}: entra na conta ${conta}.` : "Digite o valor para ver em qual conta ele entra.", "Receita aumenta o saldo da conta escolhida."];
   if (c.isPix) return [c.total ? `Pix em ${dl}: sai direto da conta ${conta}.` : "Digite o valor para ver de onde esse Pix sai.", "Não usa limite de cartão nem orçamento variável. Reduz o saldo da conta."];
-  if (!c.total) return ["Digite o valor para ver em qual fatura essa compra cai.", "Cartões fecham dia 30 e todas as faturas vencem dia 10."];
+  if (!c.total) return ["Digite o valor para ver em qual fatura essa compra cai.", "Cartões fecham dia 30."];
   const mes = MESES[c.am % 12];
   if (c.n === 1) {
-    const a = `Entra na fatura de ${mes}, que vence ${dueLabel(c.am, 0)}.`;
+    const a = `Entra na fatura de ${mes}, que vence ${dueLabel(c.am, 0, diaVenc(f.card))}.`;
     if (f.terc) return [a, "De terceiros: usa o limite do cartão, mas não entra nas contas do casal."];
     const gasto = S.lanc.filter((l) => l.forma === "cartao" && l.n === 1 && !l.terceiros && (l.cartao === "var" || l.cartao === "comp") && cycleIdx(l.data) === c.am).reduce((s, l) => s + l.total, 0);
     const resta = cfg().orcVar - gasto - c.total;
     return [a, resta >= 0 ? `Depois deste gasto, ainda dá para gastar ${brl(resta)} do orçamento variável de ${mes}.` : `Passa ${brl(-resta)} do orçamento variável de ${mes}.`];
   }
-  return [`${c.n}x de ${brl(c.per)} · 1ª parcela em ${dueLabel(c.am, 0)} · última em ${dueLabel(c.am, c.n - 1)}.`,
-    f.terc ? "De terceiros: as parcelas usam o limite, mas não entram nos gastos fixos." : `Soma ${brl(c.per)} por mês nos gastos fixos até ${dueLabel(c.am, c.n - 1).slice(3)}.`];
+  return [`${c.n}x de ${brl(c.per)} · 1ª parcela em ${dueLabel(c.am, 0, diaVenc(f.card))} · última em ${dueLabel(c.am, c.n - 1, diaVenc(f.card))}.`,
+    f.terc ? "De terceiros: as parcelas usam o limite, mas não entram nos gastos fixos." : `Soma ${brl(c.per)} por mês nos gastos fixos até ${dueLabel(c.am, c.n - 1, diaVenc(f.card)).replace(/^\d+\//, "")}.`];
 }
 
 // ---------- telas ----------
@@ -172,7 +172,7 @@ function lancarView() {
     h += `<section class="sec"><h2>Forma de pagamento</h2><div class="grid2">${opt("pay", 'data-v="pix"', "Pix", f.pay === "pix")}${opt("pay", 'data-v="cartao"', "Cartão", f.pay === "cartao")}</div>`;
     if (c.isCard) {
       h += `<h2 style="margin-top:8px">Em qual cartão?</h2>` + CARDS.map((k) =>
-        `<button class="card${f.card === k.id ? " on" : ""}" data-act="card" data-v="${k.id}" aria-pressed="${f.card === k.id}"><i style="background:${k.color}"></i><span><b>${k.name}</b><small>${k.sub}</small></span></button>`).join("");
+        `<button class="card${f.card === k.id ? " on" : ""}" data-act="card" data-v="${k.id}" aria-pressed="${f.card === k.id}"><i style="background:${cardInfo(k).color}"></i><span><b>${k.name}</b><small>${k.sub}</small></span></button>`).join("");
     } else {
       h += `<h2 style="margin-top:8px">De qual conta sai o Pix?</h2><div class="grid2">${opt("conta", 'data-v="marido"', "Conta do marido", f.conta === "marido")}${opt("conta", 'data-v="esposa"', "Conta da esposa", f.conta === "esposa")}</div>`;
     }
@@ -245,6 +245,26 @@ const dim = (M) => new Date(Math.floor(M / 12), (M % 12) + 1, 0).getDate();
 const isoOf = (M, d) => Math.floor(M / 12) + "-" + pad((M % 12) + 1) + "-" + pad(d);
 const rnd = (v) => Math.round(v * 100) / 100;
 S.mes = MIDX(todayISO());
+S.fixKeep = true; S.cfgEdit = false; S.cfgDraft = {};
+const COR_NOMES = [["#14465F", "Azul petróleo"], ["#0B1F3A", "Azul marinho"], ["#3A2E5C", "Roxo"], ["#0B6B50", "Verde"], ["#A3261B", "Vinho"], ["#8A5A00", "Dourado"], ["#1B3A63", "Azul"], ["#2B2B2B", "Grafite"]];
+function cardInfo(k, src) {
+  const C = src || cfg();
+  return { color: C["cor_" + k.id] || k.color, fim: C["fim_" + k.id] || "", dia: Number(C["dia_" + k.id]) || 10, lim: C["lim_" + k.id] };
+}
+const diaVenc = (cid) => cardInfo(CARDS.find((k) => k.id === cid)).dia;
+function fixoEf(f, M) {
+  if (f.inicio != null && M < f.inicio) return null;
+  if (f.fim != null && M > f.fim) return null;
+  let r = { desc: f.desc, valor: f.valor || 0, dia: f.dia || 1 };
+  const h = f.hist || {};
+  Object.keys(h).sort((a, b) => Number(a.slice(1)) - Number(b.slice(1))).forEach((k) => { if (Number(k.slice(1)) <= M) r = { ...r, ...h[k] }; });
+  const u = (f.uni || {})["m" + M]; if (u) r = { ...r, ...u };
+  return { id: f.id, ...r };
+}
+const fixosDe = (M) => S.fixos.map((f) => fixoEf(f, M)).filter(Boolean).sort((a, b) => a.dia - b.dia);
+function cardArt(k, I) {
+  return `<div class="ccard" style="background-color:${I.color}"><div style="display:flex;justify-content:space-between;align-items:center"><b style="font-size:15px">${k.name}</b><span class="cchip" aria-hidden="true"></span></div><div style="font-size:20px;letter-spacing:2px;font-variant-numeric:tabular-nums">•••• •••• •••• ${esc(I.fim || "0000")}</div><div style="display:flex;justify-content:space-between;font-size:13px"><span>${k.sub}</span><span>Paga dia ${I.dia}</span></div></div>`;
+}
 function cfg() {
   return { orcVar: 1000, limiteMes: 6000, lim_parc: 6000, lim_var: 6000, lim_comp: 6000, ...S.cfg };
 }
@@ -280,8 +300,8 @@ function parcelasNossas(M) {
 }
 function mesCalc(M) {
   const C = cfg();
-  const fx = S.fixos.reduce((s, f) => s + (f.valor || 0), 0);
-  const fxPago = S.fixos.filter((f) => fixoPago(f, M)).reduce((s, f) => s + (f.valor || 0), 0);
+  const FX = fixosDe(M), fx = FX.reduce((s, f) => s + (f.valor || 0), 0);
+  const fxPago = FX.filter((f) => fixoPago(f, M)).reduce((s, f) => s + (f.valor || 0), 0);
   const parc = parcelasNossas(M);
   let varG = 0;
   ["var", "comp"].forEach((c) => itensCartao(c, M).forEach((x) => { if (x.n === 1 && !x.l.terceiros) varG += x.valor; }));
@@ -298,15 +318,15 @@ const pill = (st) => `<span class="pill ${st}">${st === "p" ? "Pago" : st === "a
 function eventosMes(M) {
   const ev = [], T = todayISO();
   const stOf = (key, iso) => (S.pagos[key] ? "p" : iso < T ? "l" : "a");
-  S.fixos.forEach((f) => {
+  fixosDe(M).forEach((f) => {
     const day = Math.min(f.dia || 1, dim(M)), iso = isoOf(M, day), key = "fixo_" + f.id + "_" + M;
     ev.push({ key, nome: f.desc || "Gasto fixo", sub: "Gasto fixo", valor: f.valor || 0, day, iso, st: stOf(key, iso) });
   });
   CARDS.forEach((k) => {
     const fa = faturaDe(k.id, M - 1);
     if (fa.nos <= 0) return;
-    const key = "fatura_" + k.id + "_" + (M - 1), iso = isoOf(M, 10);
-    ev.push({ key, nome: "Fatura · " + k.name, sub: "Vence dia 10" + (fa.ter ? " · terceiros " + brl(fa.ter) + " fora" : ""), valor: fa.nos, day: 10, iso, st: stOf(key, iso) });
+    const key = "fatura_" + k.id + "_" + (M - 1), iso = isoOf(M, Math.min(diaVenc(k.id), dim(M)));
+    ev.push({ key, nome: "Fatura · " + k.name, sub: "Vence dia " + diaVenc(k.id) + (fa.ter ? " · terceiros " + brl(fa.ter) + " fora" : ""), valor: fa.nos, day: Math.min(diaVenc(k.id), dim(M)), iso, st: stOf(key, iso) });
   });
   return ev.sort((a, b) => a.day - b.day);
 }
@@ -317,24 +337,25 @@ function payBlock(key, valor) {
   if (S.payAsk === key) return `<div class="conf" role="group"><span>De qual conta saiu ${brl(valor)}?</span><div class="grid2"><button class="opt" data-act="payDo" data-v="${key}|marido|${valor}">Conta do marido</button><button class="opt" data-act="payDo" data-v="${key}|esposa|${valor}">Conta da esposa</button></div><button class="link" data-act="payNo">Cancelar</button></div>`;
   return `<button class="opt" style="margin-top:6px" data-act="payAsk" data-v="${key}">Marcar como pago</button>`;
 }
-const mnav = () => `<div class="mnav"><button data-act="mes" data-v="-1" aria-label="Mês anterior">‹</button><b aria-live="polite">${mLabel(S.mes)}</b><button data-act="mes" data-v="1" aria-label="Próximo mês">›</button></div>`;
+const mnav = () => "";
 const confDel = (id, what, act) => `<div class="conf" role="group"><span>Excluir <strong>${esc(what)}</strong>?</span><div class="grid2"><button class="opt" data-act="delNo">Cancelar</button><button class="opt on" style="background:#A3261B;border-color:#A3261B" data-act="${act}" data-v="${id}">Excluir</button></div></div>`;
 
 // ---------- Gastos fixos ----------
 function fixosView() {
-  const M = S.mes, c = mesCalc(M), tot = c.fx + c.parc;
-  let h = mnav();
-  h += `<section class="dark"><div style="font-size:13px;color:#C9D6E8">Total de gastos fixos por mês</div><div style="font-size:32px;font-weight:700;font-variant-numeric:tabular-nums">${brl(tot)}</div>
+  const M = S.mes, c = mesCalc(M), tot = c.fx + c.parc, FX = fixosDe(M);
+  let h = `<section class="dark"><div style="font-size:13px;color:#C9D6E8">Total de gastos fixos por mês</div><div style="font-size:32px;font-weight:700;font-variant-numeric:tabular-nums">${brl(tot)}</div>
     <div class="kv" style="margin-top:10px"><span>Fixos</span><b>${brl(c.fx)} · ${pct(c.fx, tot)}%</b></div><div class="kv"><span>Parcelados</span><b>${brl(c.parc)} · ${pct(c.parc, tot)}%</b></div></section>`;
   h += `<section class="sec"><div class="step"><h2 style="font-size:15px">Fixos</h2><b style="font-variant-numeric:tabular-nums">${brl(c.fx)}</b></div>`;
-  if (!S.fixos.length) h += `<p class="sub">Nenhum gasto fixo ainda. Toque em "Editar gastos fixos" para adicionar.</p>`;
-  S.fixos.forEach((f) => {
+  if (!FX.length) h += `<p class="sub">Nenhum gasto fixo neste mês. Toque em "Editar gastos fixos" para adicionar.</p>`;
+  if (S.editFix) h += `<label class="chk"><input type="checkbox" id="fixKeep" ${S.fixKeep ? "checked" : ""}><span>Manter esta edição nos meses seguintes</span></label><p class="sub">${S.fixKeep ? "A mudança vale de " + mLabel(M) + " em diante." : "A mudança vale só em " + mLabel(M) + ". Os outros meses continuam com os valores anteriores."}</p>`;
+  FX.forEach((f) => {
     if (S.editFix) {
       if (S.confirmId === f.id) { h += confDel(f.id, f.desc, "fixDel"); return; }
-      h += `<div style="display:grid;grid-template-columns:minmax(0,1fr) 92px 48px 44px;gap:6px;align-items:center"><input class="in" style="height:48px;font-size:15px" id="fx-${f.id}-d" data-fx="desc" data-id="${f.id}" value="${esc(f.desc)}" aria-label="Descrição"><input class="in" style="height:48px;font-size:15px" id="fx-${f.id}-v" inputmode="decimal" data-fx="valor" data-id="${f.id}" value="${fmtNum(f.valor || 0)}" aria-label="Valor"><input class="in" style="height:48px;font-size:15px;padding:0 4px;text-align:center" id="fx-${f.id}-n" inputmode="numeric" data-fx="dia" data-id="${f.id}" value="${f.dia || 1}" aria-label="Dia do mês"><button class="link del" style="padding:0" data-act="delAsk" data-v="${f.id}" aria-label="Excluir ${esc(f.desc)}">✕</button></div>`;
+      h += `<div style="display:flex;flex-direction:column;gap:6px;border-top:1px solid var(--line);padding-top:10px"><div style="display:grid;grid-template-columns:minmax(0,1fr) 110px 44px;gap:6px;align-items:center"><input class="in" style="height:48px;font-size:15px" id="fx-${f.id}-d" data-fx="desc" data-id="${f.id}" value="${esc(f.desc)}" aria-label="Descrição"><input class="in" style="height:48px;font-size:15px" id="fx-${f.id}-v" inputmode="decimal" data-fx="valor" data-id="${f.id}" value="${fmtNum(f.valor || 0)}" aria-label="Valor"><button class="link del" style="padding:0" data-act="delAsk" data-v="${f.id}" aria-label="Excluir ${esc(f.desc)}">✕</button></div>
+        <div style="display:flex;align-items:center;gap:8px"><label class="lbl" for="fx-${f.id}-n">Vence todo dia</label><input class="in" style="height:44px;width:72px;font-size:15px;text-align:center;padding:0 4px" id="fx-${f.id}-n" inputmode="numeric" data-fx="dia" data-id="${f.id}" value="${f.dia || 1}"></div></div>`;
     } else h += `<div class="item"><div><b>${esc(f.desc || "Gasto fixo")}</b><small>Todo dia ${f.dia || 1}</small></div><div style="text-align:right"><b style="font-variant-numeric:tabular-nums">${brl(f.valor || 0)}</b><div>${pill(fixoPago(f, M) ? "p" : "a")}</div></div></div>`;
   });
-  if (S.editFix) h += `<p class="sub">Campos: descrição, valor, dia do mês. Mudanças valem para todos os meses.</p><button class="opt" data-act="fixAdd">+ Adicionar gasto fixo</button>`;
+  if (S.editFix) h += `<button class="opt" data-act="fixAdd">+ Adicionar gasto fixo</button>`;
   h += `<button class="opt" data-act="fixEdit" style="${S.editFix ? "background:var(--navy);color:#fff" : ""}">${S.editFix ? "Concluir edição" : "Editar gastos fixos"}</button></section>`;
   const ps = [];
   ["parc", "comp"].forEach((cid) => itensCartao(cid, M).forEach((x) => { if (x.n > 1) ps.push({ ...x, cid }); }));
@@ -346,38 +367,24 @@ function fixosView() {
 
 // ---------- Cartões ----------
 function cartaoSection(k) {
-  const M = S.mes, C = cfg(), lim = C["lim_" + k.id], uso = usoCartao(k.id), fa = faturaDe(k.id, M), ed = S.editCard === k.id;
-  let h = `<section class="sec" style="gap:12px"><div class="card on" style="cursor:default;border-color:${k.color}"><i style="background:${k.color}"></i><span><b>${k.name}</b><small>${k.sub}</small></span></div>`;
+  const M = S.mes, C = cfg(), I = cardInfo(k), lim = C["lim_" + k.id], uso = usoCartao(k.id), fa = faturaDe(k.id, M);
+  let h = `<section class="sec" style="gap:12px">${cardArt(k, I)}`;
   if (k.id === "var") {
     const g = fa.it.filter((x) => !x.l.terceiros).reduce((s, x) => s + x.valor, 0);
     h += `<div class="kv"><span>Gasto no mês</span><b>${brl(g)} de ${brl(C.orcVar)}</b></div>${bar(g, C.orcVar)}<p class="sub">${g <= C.orcVar ? "Ainda dá para gastar " + brl(C.orcVar - g) : "Passou " + brl(g - C.orcVar) + " do orçamento"}</p>`;
   } else if (k.id === "parc") h += `<div class="kv"><span>Parcelas do mês</span><b>${brl(fa.nos)}</b></div>`;
   else h += `<div class="kv"><span>Nosso nesta fatura</span><b>${brl(fa.nos)}</b></div><p class="sub">Fatura total ${brl(fa.tot)} · de terceiros ${brl(fa.ter)}</p>`;
   h += `<div class="kv"><span>Limite em uso</span><b>${brl(uso.tot)} / ${brl(lim)}</b></div>${bar(uso.tot, lim)}<p class="sub">Disponível ${brl(Math.max(0, lim - uso.tot))} · nossa parte ${brl(uso.nos)} · terceiros ${brl(uso.ter)}</p>`;
-  h += `<div class="step"><b style="font-size:14px">Fatura de ${MESES[M % 12]}</b><span class="sub">vence ${dueLabel(M, 0)}</span></div>${fa.nos > 0 ? payBlock("fatura_" + k.id + "_" + M, fa.nos) : '<p class="sub">Sem valores nesta fatura.</p>'}`;
+  h += `<div class="step"><b style="font-size:14px">Fatura de ${MESES[M % 12]}</b><span class="sub">vence ${dueLabel(M, 0, I.dia)}</span></div>${fa.nos > 0 ? payBlock("fatura_" + k.id + "_" + M, fa.nos) : '<p class="sub">Sem valores nesta fatura.</p>'}`;
   h += `<div class="step" style="margin-top:6px"><h2 style="font-size:14px">Lançamentos desta fatura</h2><b>${brl(fa.tot)}</b></div>`;
   if (!fa.it.length) h += `<p class="sub">Nada lançado neste cartão neste mês.</p>`;
   fa.it.forEach((x) => {
     const l = x.l, nome = l.descricao || l.categoria;
-    if (ed) {
-      if (S.confirmId === l.id) { h += confDel(l.id, nome, "lDel"); return; }
-      h += `<div style="display:grid;grid-template-columns:minmax(0,1fr) 96px 44px;gap:6px;align-items:center"><input class="in" style="height:48px;font-size:15px" id="l-${l.id}-d" data-l="desc" data-id="${l.id}" value="${esc(nome)}" aria-label="Descrição"><input class="in" style="height:48px;font-size:15px" id="l-${l.id}-v" inputmode="decimal" data-l="valor" data-id="${l.id}" value="${fmtNum(l.total)}" aria-label="Valor total"><button class="link del" style="padding:0" data-act="delAsk" data-v="${l.id}" aria-label="Excluir ${esc(nome)}">✕</button></div>
-        <button class="opt" style="min-height:44px;font-size:13px" data-act="lTerc" data-v="${l.id}" aria-pressed="${!!l.terceiros}">${l.terceiros ? "É de terceiros (toque para marcar como nosso)" : "É nosso (toque para marcar como de terceiros)"}</button>`;
-    } else h += `<div class="item"><div><b>${esc(nome)}</b><small>${esc(dateShort(l.data))}${x.n > 1 ? " · parcela " + (x.k + 1) + "/" + x.n + " (total " + brl(l.total) + ")" : ""}${l.terceiros ? " · de terceiros" : " · nosso"}</small></div><b style="font-variant-numeric:tabular-nums">${brl(x.valor)}</b></div>`;
+    h += `<div class="item"><div><b>${esc(nome)}</b><small>${esc(dateShort(l.data))}${x.n > 1 ? " · parcela " + (x.k + 1) + "/" + x.n + " (total " + brl(l.total) + ")" : ""}${l.terceiros ? " · de terceiros" : " · nosso"}</small></div><b style="font-variant-numeric:tabular-nums">${brl(x.valor)}</b></div>`;
   });
-  h += `<button class="opt" data-act="cardEdit" data-v="${k.id}" style="${ed ? "background:var(--navy);color:#fff" : ""}">${ed ? "Concluir edição" : "Editar lançamentos"}</button>`;
-  if (ed) h += `<p class="sub">Para editar valor total e descrição. Compras novas, só pela aba Lançar.</p>`;
   return h + `</section>`;
 }
-function cartoesView() {
-  const C = cfg();
-  const cf = (key, label, v) => `<div style="display:flex;flex-direction:column;gap:4px"><label class="lbl" for="cfg-${key}">${label}</label><input class="in" style="height:48px" id="cfg-${key}" inputmode="decimal" data-cfg="${key}" value="${fmtNum(v)}"></div>`;
-  let h = mnav() + `<p class="sub" style="margin:10px 20px 0">Todos os cartões fecham dia 30. Faturas vencem dia 10.</p>`;
-  CARDS.forEach((k) => { h += cartaoSection(k); });
-  h += `<section class="sec"><h2>Valores do app</h2><p class="sub">Troque os valores de exemplo pelos reais. Ao sair do campo, salva e vale para os dois.</p>
-    ${cf("limiteMes", "Limite total de gastos do mês", C.limiteMes)}${cf("orcVar", "Orçamento dos gastos variáveis (por mês)", C.orcVar)}${cf("lim_parc", "Limite do cartão de gastos fixos", C.lim_parc)}${cf("lim_var", "Limite do cartão de gastos variáveis", C.lim_var)}${cf("lim_comp", "Limite do cartão compartilhado", C.lim_comp)}</section>`;
-  return h;
-}
+function cartoesView() { return CARDS.map(cartaoSection).join(""); }
 
 // ---------- Agenda ----------
 function agendaView() {
@@ -409,7 +416,7 @@ const saveSim = () => { try { localStorage.setItem("sim1", JSON.stringify({ item
 function simMeses() {
   const base = MIDX(todayISO()), C = cfg(), vv = SIM.varVal == null ? C.orcVar : SIM.varVal, out = [];
   for (let i = 0; i < 6; i++) {
-    const M = base + i, comp = rnd(S.fixos.reduce((s, f) => s + (f.valor || 0), 0) + parcelasNossas(M));
+    const M = base + i, comp = rnd(fixosDe(M).reduce((s, f) => s + (f.valor || 0), 0) + parcelasNossas(M));
     let sim = 0, ent = 0;
     SIM.items.forEach((x) => {
       if (x.kind === "parc") { const k = i - x.start; if (k >= 0 && k < x.n) sim += x.valor / x.n; }
@@ -445,38 +452,106 @@ function previsaoView() {
 
 // ---------- Resumo ----------
 function resumoView() {
-  const M = S.mes, c = mesCalc(M), T = todayISO(), C = cfg();
-  let h = mnav();
-  h += `<section class="dark"><div style="font-size:13px;color:#C9D6E8">Quanto ainda posso gastar em variáveis</div><div style="font-size:32px;font-weight:700;font-variant-numeric:tabular-nums">${brl(Math.max(0, c.orc - c.varG))}</div><div style="font-size:13px;color:#C9D6E8;margin-top:4px">Orçamento ${brl(c.orc)} · gasto ${brl(c.varG)}</div></section>`;
-  h += `<section class="sec"><h2>Gastos do mês</h2><div class="kv"><span>Limite do mês</span><b>${brl(c.limite)}</b></div>${bar(c.gasto + c.aPagar, c.limite)}
-    <div class="kv"><span>Gasto</span><b>${brl(c.gasto)}</b></div><div class="kv"><span>A pagar</span><b>${brl(c.aPagar)}</b></div><div class="kv"><span>Reservado para variáveis</span><b>${brl(c.reservado)}</b></div>
-    <div class="kv"><span>Sobra prevista</span><b style="color:${c.sobra < 0 ? "var(--red)" : "var(--green)"}">${brl(c.sobra)}</b></div>
-    <p class="sub">Gasto: variáveis, fixos já pagos e Pix. A pagar: fixos pendentes e parcelas do cartão. Entradas do mês: ${brl(c.rec)}.</p>
-    <button class="opt" data-act="go" data-v="cartoes">Editar limite e orçamento</button></section>`;
+  const M = S.mes, c = mesCalc(M), T = todayISO(), C = cfg(), atual = M === MIDX(T);
+  const usado = c.gasto + c.aPagar;
+  let h = `<section class="sec"><h2>Atalhos</h2><div class="shorts">${Object.entries(TITLES).filter(([id]) => id !== "resumo").map(([id, t]) => `<button class="sc" data-act="go" data-v="${id}"><span>${svg(id)}</span><small>${t}</small></button>`).join("")}</div></section>`;
+  h += `<section class="dark" style="display:flex;flex-direction:column;gap:14px"><div style="font-size:13px;color:#A9B8CF">Gastos do mês · ${mLabel(M)}</div>
+    <div><div style="font-size:13px;color:#A9B8CF">Limite do mês</div><div style="font-size:30px;font-weight:700;font-variant-numeric:tabular-nums">${brl(c.limite)}</div></div>
+    <div><div class="kv" style="color:#A9B8CF"><span>Já comprometido</span><b style="color:#fff">${pct(usado, c.limite)}%</b></div><div class="bar" style="margin-top:6px;background:#27456B"><i style="width:${Math.min(100, (usado / (c.limite || 1)) * 100)}%;background:${usado > c.limite ? "#E5645A" : "#4ADE9A"}"></i></div></div>
+    <div class="grid2" style="grid-template-columns:repeat(3,minmax(0,1fr))"><div><div style="font-size:12px;color:#A9B8CF">Gasto</div><b style="font-size:15px">${brl(c.gasto)}</b></div><div><div style="font-size:12px;color:#A9B8CF">A pagar</div><b style="font-size:15px">${brl(c.aPagar)}</b></div><div><div style="font-size:12px;color:#A9B8CF">Sobra prevista</div><b style="font-size:15px;color:${c.sobra < 0 ? "#FF9A92" : "#4ADE9A"}">${brl(c.sobra)}</b></div></div></section>`;
+  let ritmo = "";
+  if (atual) { const dia = Number(T.slice(8)), esp = rnd((c.orc * dia) / dim(M)), d = rnd(c.varG - esp); ritmo = `<p class="sub">Até o dia ${dia} o ritmo seria ${brl(esp)}. ${d > 0 ? "Vocês estão " + brl(d) + " acima." : d < 0 ? "Vocês estão " + brl(-d) + " abaixo." : "Vocês estão no ritmo."}</p>`; }
+  h += `<section class="sec"><h2>Gastos variáveis</h2><div class="kv"><span>Utilizado / limite</span><b>${brl(c.varG)} / ${brl(c.orc)}</b></div>${bar(c.varG, c.orc)}<div class="kv"><span>${c.varG <= c.orc ? "Pode gastar" : "Passou"}</span><b style="color:${c.varG <= c.orc ? "var(--green)" : "var(--red)"}">${brl(Math.abs(c.orc - c.varG))}</b></div>${ritmo}</section>`;
   const fat = CARDS.map((k) => faturaDe(k.id, M));
-  const totFat = fat.reduce((s, f) => s + f.nos, 0), pagas = CARDS.every((k, i) => fat[i].nos <= 0 || S.pagos["fatura_" + k.id + "_" + M]);
-  h += `<section class="sec"><h2>Cartões</h2><p class="sub">Fecha dia 30 · vence ${dueLabel(M, 0)}</p>${CARDS.map((k, i) => `<div class="kv"><span>${k.name}</span><b>${brl(fat[i].nos)}</b></div>`).join("")}<p class="prev" style="background:#EEF3F9">${totFat <= 0 ? "Nenhuma fatura com valores neste mês." : pagas ? "Faturas deste mês já pagas." : `Para pagar em ${dueLabel(M, 0)}, separem ${brl(totFat)}. As parcelas já contam como gasto fixo.`}</p><button class="opt" data-act="go" data-v="cartoes">Ver cartões</button></section>`;
-  const base = MIDX(T);
-  h += `<section class="sec"><h2>Próximos meses</h2><p class="sub">Fixos e parcelas já lançados, comparados ao limite de ${brl(C.limiteMes)}.</p>${[1, 2, 3, 4].map((i) => { const m = base + i, v = S.fixos.reduce((s, f) => s + (f.valor || 0), 0) + parcelasNossas(m); return `<div><div class="kv"><span>${mLabel(m)}</span><b>${brl(v)}</b></div>${bar(v, C.limiteMes)}</div>`; }).join("")}</section>`;
-  const prox = [];
-  for (let i = 0; i < 2 && prox.length < 4; i++) eventosMes(base + i).forEach((e) => { if (e.st !== "p" && e.iso >= T && prox.length < 4 && !prox.find((p) => p.key === e.key)) prox.push(e); });
-  eventosMes(base).forEach((e) => { if (e.st === "l" && !prox.find((p) => p.key === e.key)) prox.unshift(e); });
-  h += `<section class="sec"><div class="step"><h2>Próximos vencimentos</h2><button class="link" data-act="go" data-v="agenda">Ver agenda</button></div>${prox.length ? prox.slice(0, 5).map((e) => `<div class="item"><div><b>${esc(e.nome)}</b><small>${esc(dateShort(e.iso))}</small></div><div style="text-align:right"><b style="font-variant-numeric:tabular-nums">${brl(e.valor)}</b><div>${pill(e.st)}</div></div></div>`).join("") : '<p class="sub">Nada pendente por enquanto.</p>'}</section>`;
+  h += `<section class="sec"><div class="step"><h2>Cartões</h2><button class="link" data-act="go" data-v="cartoes">Ver cartões</button></div>${CARDS.map((k, i) => { const I = cardInfo(k), u = usoCartao(k.id); return `<div style="display:flex;flex-direction:column;gap:6px"><div class="kv"><span style="display:flex;align-items:center;gap:8px"><i style="width:14px;height:14px;border-radius:4px;background:${I.color};display:inline-block"></i>${k.name}</span><b>${brl(u.tot)} / ${brl(I.lim)}</b></div>${bar(u.tot, I.lim)}<small class="sub">Fatura de ${MESES[M % 12]}: ${brl(fat[i].nos)} · vence ${dueLabel(M, 0, I.dia)}</small></div>`; }).join("")}</section>`;
+  const dest = S.sobraDest || "guardar", txt = { guardar: "guardar na conta", proximo: "deixar para o mês seguinte", investir: "investir ou poupar" };
+  h += `<section class="sec"><h2>O que fazer com a sobra?</h2><div class="wrap">${Object.entries({ guardar: "Guardar", proximo: "Mês seguinte", investir: "Investir" }).map(([id, l]) => `<button class="chip${dest === id ? " on" : ""}" data-act="dest" data-v="${id}" aria-pressed="${dest === id}">${l}</button>`).join("")}</div><p class="prev">${c.sobra > 0 ? `Se tudo for pago como previsto e o variável for usado por inteiro, sobram ${brl(c.sobra)} em ${MESES[M % 12]}. Plano: ${txt[dest]}.` : `Com o previsto, não sobra nada em ${MESES[M % 12]}.`}</p></section>`;
+  h += `<section class="sec"><h2>Projeção financeira</h2>${[1, 2, 3, 4].map((i) => { const m = M + i, v = rnd(fixosDe(m).reduce((s, f) => s + (f.valor || 0), 0) + parcelasNossas(m)); return `<div><div class="kv"><span>${mLabel(m)}</span><b>${brl(v)} / ${brl(C.limiteMes)}</b></div>${bar(v, C.limiteMes)}</div>`; }).join("")}</section>`;
+  const b = MIDX(T), all = [...eventosMes(b), ...eventosMes(b + 1)], lim7 = new Date(); lim7.setDate(lim7.getDate() + 7);
+  const lim7iso = lim7.getFullYear() + "-" + pad(lim7.getMonth() + 1) + "-" + pad(lim7.getDate());
+  const hoje = all.filter((e) => e.iso === T), prox = all.filter((e) => e.iso > T && e.iso <= lim7iso && e.st !== "p");
+  const row = (e) => `<div class="item"><div><b>${esc(e.nome)}</b><small>${esc(dateShort(e.iso))}</small></div><div style="text-align:right"><b style="font-variant-numeric:tabular-nums">${brl(e.valor)}</b><div>${pill(e.st)}</div></div></div>`;
+  h += `<section class="sec"><div class="step"><h2>Agenda</h2><button class="link" data-act="go" data-v="agenda">Ver agenda</button></div><b style="font-size:14px">Hoje</b>${hoje.length ? hoje.map(row).join("") : '<p class="sub">Nenhum vencimento hoje.</p>'}<b style="font-size:14px;margin-top:6px">Próximos 7 dias</b>${prox.length ? prox.map(row).join("") : '<p class="sub">Nenhum vencimento nos próximos 7 dias.</p>'}</section>`;
   return h;
 }
 
+// ---------- Gastos variáveis ----------
+const catRows = (map) => { const arr = Object.entries(map).sort((a, b) => b[1] - a[1]); const mx = Math.max(1, ...arr.map((x) => x[1])); return arr.length ? arr.map(([k, v]) => `<div><div class="kv"><span>${esc(k)}</span><b>${brl(v)}</b></div><div class="bar"><i style="width:${(v / mx) * 100}%"></i></div></div>`).join("") : '<p class="sub">Nada lançado neste mês.</p>'; };
+function variaveisView() {
+  const M = S.mes, c = mesCalc(M);
+  const its = [...itensCartao("var", M), ...itensCartao("comp", M)].filter((x) => x.n === 1).sort((a, b) => (a.l.data < b.l.data ? 1 : -1));
+  const pix = S.lanc.filter((l) => l.tipo === "despesa" && l.forma === "pix" && MIDX(l.data) === M);
+  let h = `<section class="dark"><div style="font-size:13px;color:#C9D6E8">Gastos variáveis do mês</div><div style="font-size:32px;font-weight:700;font-variant-numeric:tabular-nums">${brl(c.varG)}</div><div style="font-size:13px;color:#C9D6E8;margin:4px 0 10px">Utilizado / limite: ${brl(c.varG)} / ${brl(c.orc)}</div><div class="bar" style="background:#27456B"><i style="width:${Math.min(100, (c.varG / (c.orc || 1)) * 100)}%;background:${c.varG > c.orc ? "#E5645A" : "#4ADE9A"}"></i></div><div style="font-size:13px;color:#C9D6E8;margin-top:8px">${c.varG <= c.orc ? "Pode gastar " + brl(c.orc - c.varG) : "Passou " + brl(c.varG - c.orc)}</div></section>`;
+  h += `<section class="sec"><div class="step"><h2>Compras à vista no cartão</h2><b>${its.length}</b></div>${its.length ? its.map((x) => `<div class="item"><div><b>${esc(x.l.descricao || x.l.categoria)}</b><small>${esc(dateShort(x.l.data))} · ${CARDS.find((k) => k.id === x.l.cartao).name}${x.l.terceiros ? " · de terceiros (fora do orçamento)" : ""}</small></div><b style="font-variant-numeric:tabular-nums">${brl(x.valor)}</b></div>`).join("") : '<p class="sub">Nenhuma compra à vista neste mês.</p>'}</section>`;
+  h += `<section class="sec"><div class="step"><h2>Pix do mês</h2><b>${brl(c.pix)}</b></div>${pix.length ? pix.map((l) => itemHTML(l, false)).join("") : '<p class="sub">Nenhum Pix neste mês.</p>'}</section>`;
+  return h;
+}
+
+// ---------- Gráficos ----------
+function graficosView() {
+  const M = S.mes, C = cfg(), rows = [];
+  for (let i = -3; i <= 2; i++) { const m = M + i, c = mesCalc(m); rows.push({ m, comp: rnd(c.fx + c.parc), v: rnd(c.varG + c.pix), rec: c.rec }); }
+  const mx = Math.max(C.limiteMes, ...rows.map((r) => r.comp + r.v), ...rows.map((r) => r.rec), 1), w = (v) => (v / mx) * 100;
+  let h = `<section class="sec"><h2>Gastos por mês</h2><p class="sub">Escuro: fixos e parcelas · verde: variáveis e Pix · traço: limite de ${brl(C.limiteMes)}</p>`;
+  rows.forEach((r) => { h += `<div><div class="kv"><span${r.m === M ? ' style="font-weight:700"' : ""}>${mLabel(r.m)}</span><b>${brl(r.comp + r.v)}</b></div><div class="bar" style="height:16px;position:relative;overflow:visible"><div style="display:flex;height:100%;border-radius:5px;overflow:hidden"><i style="width:${w(r.comp)}%;background:#0B1F3A"></i><i style="width:${w(r.v)}%;background:#0B7A5C"></i></div><span style="position:absolute;left:${w(C.limiteMes)}%;top:-3px;bottom:-3px;border-left:2px dashed #A3261B"></span></div><small class="sub">Fixos e parcelas ${brl(r.comp)} · variáveis e Pix ${brl(r.v)}</small></div>`; });
+  h += `</section><section class="sec"><h2>Entradas e saídas</h2><p class="sub">Verde: entradas lançadas · escuro: saídas</p>`;
+  rows.forEach((r) => { h += `<div><div class="kv"><span${r.m === M ? ' style="font-weight:700"' : ""}>${mLabel(r.m)}</span><b>${brl(r.rec - r.comp - r.v)}</b></div><div class="bar" style="height:8px;margin-bottom:3px"><i style="width:${w(r.rec)}%"></i></div><div class="bar" style="height:8px"><i style="width:${w(r.comp + r.v)}%;background:#0B1F3A"></i></div><small class="sub">Entradas ${brl(r.rec)} · saídas ${brl(r.comp + r.v)} · saldo do mês na coluna da direita</small></div>`; });
+  const cats = {};
+  S.lanc.forEach((l) => { if (l.tipo !== "despesa") return; if (l.forma === "pix") { if (MIDX(l.data) === M) cats[l.categoria] = (cats[l.categoria] || 0) + l.total; } });
+  ["var", "comp", "parc"].forEach((cid) => itensCartao(cid, M).forEach((x) => { if (!x.l.terceiros) cats[x.l.categoria] = (cats[x.l.categoria] || 0) + x.valor; }));
+  h += `</section><section class="sec"><h2>Gastos por categoria em ${MESES[M % 12]}</h2>${catRows(cats)}</section>`;
+  return h;
+}
+
+// ---------- Configurações ----------
+const CFG_NUM = ["limiteMes", "orcVar", "lim_parc", "lim_var", "lim_comp"];
+function configView() {
+  const C = cfg(), ed = S.cfgEdit, D = S.cfgDraft;
+  const val = (key) => (ed ? D[key] : fmtNum(C[key]));
+  const campo = (key, label) => ed ? `<div style="display:flex;flex-direction:column;gap:4px"><label class="lbl" for="cd-${key}">${label}</label><input class="in" style="height:48px" id="cd-${key}" inputmode="decimal" data-cd="${key}" value="${esc(D[key])}"></div>` : `<div class="kv"><span>${label}</span><b>${brl(C[key])}</b></div>`;
+  let h = `<section class="sec"><h2>Valores do app</h2>${ed ? '<p class="sub">Altere o que precisar e toque em Salvar. Vale para os dois celulares.</p>' : ""}${campo("limiteMes", "Limite total de gastos do mês")}${campo("orcVar", "Orçamento dos gastos variáveis (por mês)")}${campo("lim_parc", "Limite do cartão de gastos fixos")}${campo("lim_var", "Limite do cartão de gastos variáveis")}${campo("lim_comp", "Limite do cartão compartilhado")}</section>`;
+  CARDS.forEach((k) => {
+    const src = ed ? { ...C, ["cor_" + k.id]: D["cor_" + k.id], ["fim_" + k.id]: D["fim_" + k.id], ["dia_" + k.id]: D["dia_" + k.id] } : C;
+    h += `<section class="sec" style="gap:12px"><h2>${k.name}</h2>${cardArt(k, cardInfo(k, src))}`;
+    if (ed) h += `<div class="lbl">Cor do cartão</div><div class="wrap">${COR_NOMES.map(([c, n]) => `<button data-act="cfgCor" data-v="${k.id}|${c}" aria-label="${n}" aria-pressed="${D["cor_" + k.id] === c}" style="width:44px;height:44px;border-radius:22px;background:${c};border:3px solid ${D["cor_" + k.id] === c ? "#4ADE9A" : "#fff"};box-shadow:0 0 0 1px #7C8EA8;cursor:pointer"></button>`).join("")}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><div style="display:flex;flex-direction:column;gap:4px"><label class="lbl" for="cd-fim_${k.id}">Final do número</label><input class="in" style="height:48px" id="cd-fim_${k.id}" inputmode="numeric" maxlength="4" data-cd="fim_${k.id}" value="${esc(D["fim_" + k.id])}" placeholder="0000"></div><div style="display:flex;flex-direction:column;gap:4px"><label class="lbl" for="cd-dia_${k.id}">Dia de pagamento</label><input class="in" style="height:48px" id="cd-dia_${k.id}" inputmode="numeric" maxlength="2" data-cd="dia_${k.id}" value="${esc(D["dia_" + k.id])}"></div></div>`;
+    h += `</section>`;
+  });
+  h += `<div style="margin:16px 20px 0;display:flex;flex-direction:column;gap:8px">${ed ? '<button class="main" data-act="cfgSave">Salvar</button><button class="opt" data-act="cfgCancel">Cancelar</button>' : '<button class="main" data-act="cfgEdit">Editar</button>'}</div>`;
+  h += `<section class="sec"><h2>Backup</h2><p class="sub">Baixa um arquivo com todos os lançamentos, gastos fixos, pagamentos e valores. Guarde no Google Drive antes de cada atualização.</p><button class="opt" data-act="backup">Baixar backup</button></section>
+  <section class="sec"><h2>Conta</h2><p class="sub">Entrou como ${esc(S.user.email)}</p><button class="opt" data-act="sair">Sair</button><p class="sub">Versão de teste 4</p></section>`;
+  return h;
+}
+const ICONS = {
+  resumo: '<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>',
+  lancar: '<circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/>',
+  fixos: '<path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/>',
+  variaveis: '<path d="M6 7h12l-1 13H7L6 7z"/><path d="M9 7a3 3 0 0 1 6 0"/>',
+  cartoes: '<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/>',
+  contas: '<path d="M3 7a2 2 0 0 1 2-2h14v4"/><path d="M3 7v11a2 2 0 0 0 2 2h16V9H5a2 2 0 0 1-2-2z"/><circle cx="17" cy="14.5" r="1"/>',
+  agenda: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
+  previsao: '<path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/>',
+  graficos: '<path d="M5 20V10M12 20V4M19 20v-7"/>',
+  configuracoes: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>',
+};
+const svg = (id) => `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[id]}</svg>`;
+const TITLES = { resumo: "Resumo", lancar: "Lançar", fixos: "Gastos fixos", variaveis: "Gastos variáveis", cartoes: "Cartões", contas: "Contas", agenda: "Agenda", previsao: "Simulação", graficos: "Gráficos", configuracoes: "Configurações" };
+const COM_MES = ["resumo", "fixos", "variaveis", "cartoes", "agenda", "graficos"];
+const VIEWS = { resumo: resumoView, lancar: lancarView, fixos: fixosView, variaveis: variaveisView, cartoes: cartoesView, contas: contasView, agenda: agendaView, previsao: previsaoView, graficos: graficosView, configuracoes: configView };
+
 function shell() {
-  const TITLES = { resumo: "Resumo", fixos: "Gastos fixos", cartoes: "Cartões", lancar: "Lançar", contas: "Contas", agenda: "Agenda", previsao: "Previsão" };
-  const titulo = TITLES[S.view] || "Lançar";
-  const sync = !S.online ? "Sem internet · salvando no aparelho" : S.fromCache ? "Sincronizando..." : "Sincronizado";
-  let h = `<header class="top"><button class="icon" data-act="menuOpen" aria-label="Abrir menu" aria-expanded="${S.menu}">${ICON_MENU}</button><h1>${titulo}</h1><span class="sync" role="status">${sync}</span></header>`;
-  if (S.dataErr) h += `<p class="err" style="margin:12px 20px">Erro ao ler os dados: ${esc(S.dataErr)}</p>`;
-  const VIEWS = { resumo: resumoView, fixos: fixosView, cartoes: cartoesView, lancar: lancarView, contas: contasView, agenda: agendaView, previsao: previsaoView };
+  const titulo = TITLES[S.view] || "Lançar", hasM = COM_MES.includes(S.view);
+  const sync = !S.online ? "Sem internet" : S.fromCache ? "Sincronizando..." : "Sincronizado";
+  const atual = S.mes === MIDX(todayISO());
+  let h = `<header class="top"><div class="trow"><button class="icon" data-act="menuOpen" aria-label="Abrir menu" aria-expanded="${S.menu}">${ICON_MENU}</button><div class="ttl"><h1>${titulo}</h1><span id="mchip" class="mchip"${hasM && S.compact ? "" : " hidden"}>${mLabel(S.mes)}</span></div><span class="sync" role="status">${sync}</span></div>`;
+  if (hasM) h += `<div id="mpanel" class="mpanel"${S.compact ? " hidden" : ""}><div class="mgrid"><button class="icon" data-act="mes" data-v="-1" aria-label="Mês anterior"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button><div style="text-align:center"><div aria-live="polite" style="font-size:16px;font-weight:700">${mLabel(S.mes)}</div><button class="hoje" data-act="mesHoje" ${atual ? 'disabled aria-label="Já está no mês atual"' : 'aria-label="Voltar para o mês atual"'}>${atual ? "Mês atual" : "Ir para o mês atual"}</button></div><button class="icon" data-act="mes" data-v="1" aria-label="Próximo mês"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg></button></div></div>`;
+  h += `</header>` + (hasM ? '<div aria-hidden="true" class="spacer"></div>' : "");
+  if (S.dataErr) h += `<p class="err" style="margin:12px 20px">Erro: ${esc(S.dataErr)}</p>`;
   h += (VIEWS[S.view] || lancarView)();
   if (S.menu) {
-    h += `<div class="drawer"><nav aria-label="Menu de abas"><div style="padding:0 12px 12px;font-size:16px;font-weight:700">Finanças do Casal</div>
-      ${Object.entries(TITLES).map(([id, t]) => `<a data-act="go" data-v="${id}" class="${S.view === id ? "on" : ""}">${t}</a>`).join("")}
-      <div style="flex:1"></div><div style="padding:8px 12px;font-size:12px;color:#A9B8CF">${esc(S.user.email)}</div><a data-act="sair">Sair</a></nav>
+    h += `<div class="drawer"><nav aria-label="Menu de abas"><div style="display:flex;align-items:center;justify-content:space-between;padding:0 4px 12px 12px"><span style="font-size:16px;font-weight:700">Finanças do Casal</span><button data-act="menuClose" aria-label="Fechar menu" style="width:44px;height:44px;border:0;border-radius:12px;background:transparent;color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+      ${Object.entries(TITLES).map(([id, t]) => `<a data-act="go" data-v="${id}" class="${S.view === id ? "on" : ""}">${svg(id)}<span>${t}</span></a>`).join("")}
+      <div style="flex:1"></div><div style="padding:8px 12px;font-size:12px;color:#A9B8CF">${esc(S.user.email)}</div><a data-act="sair"><span>Sair</span></a></nav>
       <button class="sh" data-act="menuClose" aria-label="Fechar menu"></button></div>`;
   }
   return h;
@@ -501,18 +576,41 @@ function refreshLive() {
 }
 const act = {
   menuOpen() { S.menu = true; render(); }, menuClose() { S.menu = false; render(); },
-  go(d) { S.view = d.v; S.menu = false; S.confirmId = null; S.editConta = null; S.payAsk = null; S.editFix = false; S.editCard = null; S.selDay = 0; scrollTo(0, 0); render(); },
+  go(d) { S.view = d.v; S.menu = false; S.confirmId = null; S.editConta = null; S.payAsk = null; S.editFix = false; S.cfgEdit = false; S.selDay = 0; scrollTo(0, 0); render(); },
+  dest(d) { S.sobraDest = d.v; render(); },
+  mesHoje() { S.mes = MIDX(todayISO()); S.selDay = 0; S.payAsk = null; S.confirmId = null; render(); },
+  backup() {
+    const dados = { geradoEm: new Date().toISOString(), lancamentos: S.lanc, fixos: S.fixos, pagos: S.pagos, config: S.cfg, saldos: S.base };
+    const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([JSON.stringify(dados, null, 1)], { type: "application/json" }));
+    a.download = "backup-financas-" + todayISO() + ".json"; document.body.appendChild(a); a.click(); a.remove();
+  },
   mes(d) { S.mes += Number(d.v); S.selDay = 0; S.payAsk = null; S.confirmId = null; render(); },
   selDay(d) { S.selDay = Number(d.v); S.payAsk = null; render(); },
   payAsk(d) { S.payAsk = d.v; render(); }, payNo() { S.payAsk = null; render(); },
   payDo(d) { const [key, conta, valor] = d.v.split("|"); setDoc(doc(db, "pagos", key), { tipo: key.split("_")[0], conta, valor: Number(valor), em: todayISO(), por: S.user.email }).catch(errH); S.payAsk = null; render(); },
   unpay(d) { deleteDoc(doc(db, "pagos", d.v)).catch(errH); },
   fixEdit() { S.editFix = !S.editFix; S.confirmId = null; render(); },
-  fixAdd() { addDoc(collection(db, "fixos"), { desc: "Novo gasto fixo", valor: 0, dia: 10, criadoEm: serverTimestamp() }).catch(errH); },
-  fixDel(d) { deleteDoc(doc(db, "fixos", d.v)).catch(errH); S.confirmId = null; render(); },
-  cardEdit(d) { S.editCard = S.editCard === d.v ? null : d.v; S.confirmId = null; render(); },
-  lDel(d) { deleteDoc(doc(db, "lancamentos", d.v)).catch(errH); S.confirmId = null; render(); },
-  lTerc(d) { const l = S.lanc.find((x) => x.id === d.v); if (l) updateDoc(doc(db, "lancamentos", d.v), { terceiros: !l.terceiros }).catch(errH); },
+  fixAdd() { addDoc(collection(db, "fixos"), { desc: "Novo gasto fixo", valor: 0, dia: 10, inicio: S.mes, criadoEm: serverTimestamp() }).catch(errH); },
+  fixDel(d) {
+    const f = S.fixos.find((x) => x.id === d.v);
+    if (f) { if (f.inicio != null && f.inicio >= S.mes) deleteDoc(doc(db, "fixos", d.v)).catch(errH); else updateDoc(doc(db, "fixos", d.v), { fim: S.mes - 1 }).catch(errH); }
+    S.confirmId = null; render();
+  },
+  cfgEdit() {
+    const C = cfg(); S.cfgDraft = {};
+    CFG_NUM.forEach((k) => { S.cfgDraft[k] = fmtNum(C[k]); });
+    CARDS.forEach((k) => { const I = cardInfo(k); S.cfgDraft["cor_" + k.id] = I.color; S.cfgDraft["fim_" + k.id] = I.fim; S.cfgDraft["dia_" + k.id] = String(I.dia); });
+    S.cfgEdit = true; render();
+  },
+  cfgCancel() { S.cfgEdit = false; render(); },
+  cfgCor(d) { const [id, cor] = d.v.split("|"); S.cfgDraft["cor_" + id] = cor; render(); },
+  cfgSave() {
+    const D = S.cfgDraft, out = {};
+    CFG_NUM.forEach((k) => { out[k] = parse(D[k]); });
+    CARDS.forEach((k) => { out["cor_" + k.id] = D["cor_" + k.id]; out["fim_" + k.id] = String(D["fim_" + k.id] || "").replace(/\D/g, "").slice(0, 4); out["dia_" + k.id] = Math.min(31, Math.max(1, parseInt(D["dia_" + k.id]) || 10)); });
+    setDoc(doc(db, "config", "geral"), out, { merge: true }).catch(errH);
+    S.cfgEdit = false; render();
+  },
   simVar(d) { const C = cfg(); SIM.varVal = Math.max(0, (SIM.varVal == null ? C.orcVar : SIM.varVal) + Number(d.v)); saveSim(); render(); },
   simVarReset() { SIM.varVal = null; saveSim(); render(); },
   simKind(d) { SIM.f.kind = d.v; render(); },
@@ -577,6 +675,16 @@ const act = {
   },
 };
 
+let lastY = 0;
+document.addEventListener("scroll", (e) => {
+  const y = window.scrollY || document.documentElement.scrollTop || 0, was = !!S.compact;
+  if (y <= 10) S.compact = false; else if (y > lastY + 6 && y > 70) S.compact = true; else if (y < lastY - 6) S.compact = false;
+  lastY = y;
+  if (was !== S.compact) {
+    const p = document.getElementById("mpanel"), c = document.getElementById("mchip");
+    if (p) p.hidden = S.compact; if (c) c.hidden = !S.compact;
+  }
+}, true);
 document.addEventListener("click", (e) => {
   const t = e.target.closest("[data-act]");
   if (!t || !act[t.dataset.act]) return;
@@ -587,19 +695,23 @@ document.addEventListener("input", (e) => {
   if (e.target.id === "valor") { S.f.valor = e.target.value; refreshLive(); }
   else if (e.target.id === "desc") S.f.desc = e.target.value;
   else if (e.target.id === "draft") S.draft = e.target.value;
+  else if (e.target.dataset && e.target.dataset.cd) S.cfgDraft[e.target.dataset.cd] = e.target.value;
   else if (e.target.id === "sim-nome") SIM.f.nome = e.target.value;
   else if (e.target.id === "sim-valor") { SIM.f.valor = e.target.value; render(); }
 });
 document.addEventListener("change", (e) => {
   const t = e.target, d = t.dataset || {};
+  if (t.id === "fixKeep") { S.fixKeep = t.checked; render(); return; }
   if (d.fx) {
     const v = d.fx === "desc" ? t.value.trim() : d.fx === "valor" ? parse(t.value) : Math.min(31, Math.max(1, parseInt(t.value) || 1));
-    updateDoc(doc(db, "fixos", d.id), { [d.fx]: v }).catch(errH);
-  } else if (d.l) {
-    const l = S.lanc.find((x) => x.id === d.id); if (!l) return;
-    if (d.l === "desc") updateDoc(doc(db, "lancamentos", d.id), { descricao: t.value.trim() }).catch(errH);
-    else { const total = rnd(parse(t.value)); updateDoc(doc(db, "lancamentos", d.id), { total, parcela: Math.floor((total * 100) / (l.n || 1)) / 100 }).catch(errH); }
-  } else if (d.cfg) setDoc(doc(db, "config", "geral"), { [d.cfg]: parse(t.value) }, { merge: true }).catch(errH);
+    const M = S.mes, up = {};
+    if (S.fixKeep) {
+      up["hist.m" + M + "." + d.fx] = v;
+      const f = S.fixos.find((x) => x.id === d.id);
+      Object.keys((f && f.hist) || {}).forEach((k) => { if (Number(k.slice(1)) > M && f.hist[k][d.fx] !== undefined) up["hist." + k + "." + d.fx] = deleteField(); });
+    } else up["uni.m" + M + "." + d.fx] = v;
+    updateDoc(doc(db, "fixos", d.id), up).catch(errH);
+  }
 });
 document.addEventListener("submit", (e) => {
   if (e.target.id !== "loginForm") return;
