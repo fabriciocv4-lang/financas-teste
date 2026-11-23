@@ -3,7 +3,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/fireba
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
-  collection, doc, addDoc, deleteDoc, setDoc, updateDoc, deleteField, onSnapshot, query, orderBy, serverTimestamp,
+  collection, doc, addDoc, deleteDoc, setDoc, updateDoc, deleteField, arrayUnion, arrayRemove, onSnapshot, query, orderBy, serverTimestamp,
 } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 import { firebaseConfig } from "./firebase-config.js";
 
@@ -280,14 +280,18 @@ function cfg() {
   return { orcVar: 1000, limiteMes: 6000, lim_parc: 6000, lim_var: 6000, lim_comp: 6000, ...S.cfg };
 }
 const contaNome = (c) => (c === "marido" ? "do marido" : "da esposa");
+function cronograma(l) {
+  const n = l.n || 1, pul = new Set(l.pulos || []), out = [], a = startIdx(l);
+  for (let m = a; out.length < n && m < a + n + pul.size + 1; m++) if (!pul.has(m)) out.push(m);
+  return out;
+}
 function itensCartao(cid, M) {
   const out = [];
   for (const l of S.lanc) {
     if (l.forma !== "cartao" || l.cartao !== cid) continue;
-    const a = startIdx(l), k = M - a;
-    if (l.recorrente) { if (k >= 0) out.push({ l, k, n: 0, rec: true, valor: l.total }); continue; }
-    const n = l.n || 1;
-    if (k >= 0 && k < n) out.push({ l, k, n, valor: n > 1 ? l.parcela : l.total });
+    if (l.recorrente) { if (M >= startIdx(l) && !(l.pulos || []).includes(M)) out.push({ l, k: M - startIdx(l), n: 0, rec: true, valor: l.total }); continue; }
+    const n = l.n || 1, k = cronograma(l).indexOf(M);
+    if (k >= 0) out.push({ l, k, n, valor: n > 1 ? l.parcela : l.total });
   }
   return out;
 }
@@ -300,8 +304,8 @@ function usoCartao(cid) {
   let nos = 0, ter = 0;
   S.lanc.forEach((l) => {
     if (l.forma !== "cartao" || l.cartao !== cid || l.recorrente) return;
-    const a = startIdx(l), n = l.n || 1, v = n > 1 ? l.parcela : l.total;
-    for (let k = 0; k < n; k++) if (!S.pagos["fatura_" + cid + "_" + (a + k)]) { if (l.terceiros) ter += v; else nos += v; }
+    const n = l.n || 1, v = n > 1 ? l.parcela : l.total;
+    cronograma(l).forEach((a) => { if (!S.pagos["fatura_" + cid + "_" + a]) { if (l.terceiros) ter += v; else nos += v; } });
   });
   return { nos: rnd(nos), ter: rnd(ter), tot: rnd(nos + ter) };
 }
@@ -397,11 +401,13 @@ function cartaoSection(k) {
     if (ed) {
       if (S.confirmId === l.id) { h += confDel(l.id, nome, "lDel"); return; }
       h += `<div style="display:flex;flex-direction:column;gap:6px;border-top:1px solid var(--line);padding-top:10px"><div style="display:grid;grid-template-columns:minmax(0,1fr) 104px 44px;gap:6px;align-items:center"><input class="in" style="height:48px;font-size:15px" id="l-${l.id}-d" data-l="desc" data-id="${l.id}" value="${esc(nome)}" aria-label="Descrição"><input class="in" style="height:48px;font-size:15px" id="l-${l.id}-v" inputmode="decimal" data-l="valor" data-id="${l.id}" value="${fmtNum(l.total)}" aria-label="${x.rec ? "Valor mensal" : "Valor total da compra"}"><button class="link del" style="padding:0" data-act="delAsk" data-v="${l.id}" aria-label="Excluir ${esc(nome)}">✕</button></div>
-        <button class="opt" style="min-height:44px;font-size:13px" data-act="lTerc" data-v="${l.id}" aria-pressed="${!!l.terceiros}">${l.terceiros ? "De terceiros (toque para marcar como nosso)" : "Nosso (toque para marcar como de terceiros)"}</button>${x.n > 1 || x.rec ? `<div class="step"><span class="lbl">Primeiro pagamento</span><div class="step"><button data-act="lPP" data-v="${l.id}|-1" aria-label="Mês anterior">‹</button><b style="min-width:120px;text-align:center;font-size:14px">${mLabel(startIdx(l) + 1)}</b><button data-act="lPP" data-v="${l.id}|1" aria-label="Próximo mês">›</button></div></div>` : ""}</div>`;
+        <button class="opt" style="min-height:44px;font-size:13px" data-act="lTerc" data-v="${l.id}" aria-pressed="${!!l.terceiros}">${l.terceiros ? "De terceiros (toque para marcar como nosso)" : "Nosso (toque para marcar como de terceiros)"}</button><button class="opt" style="min-height:44px;font-size:13px" data-act="lSkip" data-v="${l.id}">Não veio nesta fatura${x.rec ? "" : " (empurra as parcelas seguintes)"}</button>${x.n > 1 || x.rec ? `<div class="step"><span class="lbl">Primeiro pagamento</span><div class="step"><button data-act="lPP" data-v="${l.id}|-1" aria-label="Mês anterior">‹</button><b style="min-width:120px;text-align:center;font-size:14px">${mLabel(startIdx(l) + 1)}</b><button data-act="lPP" data-v="${l.id}|1" aria-label="Próximo mês">›</button></div></div>` : ""}</div>`;
       return;
     }
     h += `<div class="item"><div><b>${esc(nome)}</b><small>${esc(dateShort(l.data))}${x.rec ? " · recorrente, todo mês" : x.n > 1 ? " · parcela " + (x.k + 1) + "/" + x.n + " (total " + brl(l.total) + ")" : ""}${l.terceiros ? " · de terceiros" : " · nosso"}</small></div><b style="font-variant-numeric:tabular-nums">${brl(x.valor)}</b></div>`;
   });
+  const pul = S.lanc.filter((l) => l.forma === "cartao" && l.cartao === k.id && (l.pulos || []).includes(M));
+  if (pul.length) h += `<div class="conf" style="background:#FFF8E6;border-color:#E3C26B"><b style="font-size:14px">Não vieram nesta fatura</b>${pul.map((l) => { const cr = cronograma(l), fim = l.recorrente ? "" : ` · agora a última parcela é em ${dueLabel(cr[cr.length - 1], 0, I.dia).replace(/^\d+\//, "")}`; return `<div class="step"><span style="font-size:13px">${esc(l.descricao || l.categoria)}${fim}</span><button class="link" data-act="lUnskip" data-v="${l.id}">Desfazer</button></div>`; }).join("")}</div>`;
   h += `<button class="opt" data-act="cardEdit" data-v="${k.id}" style="${ed ? "background:var(--navy);color:#fff" : ""}">${ed ? "Concluir edição" : "Editar lançamentos"}</button>`;
   if (ed) h += `<p class="sub">Mudanças valem para a compra inteira (todas as parcelas) ou, nas recorrentes, para todos os meses. Excluir apaga a compra inteira. Compras novas, só pela aba Lançar.</p>`;
   return h + `</section>`;
@@ -612,6 +618,8 @@ const act = {
   payAsk(d) { S.payAsk = d.v; render(); }, payNo() { S.payAsk = null; render(); },
   payDo(d) { const [key, conta, valor] = d.v.split("|"); setDoc(doc(db, "pagos", key), { tipo: key.split("_")[0], conta, valor: Number(valor), em: todayISO(), por: S.user.email }).catch(errH); S.payAsk = null; render(); },
   unpay(d) { deleteDoc(doc(db, "pagos", d.v)).catch(errH); },
+  lSkip(d) { updateDoc(doc(db, "lancamentos", d.v), { pulos: arrayUnion(S.mes) }).catch(errH); },
+  lUnskip(d) { updateDoc(doc(db, "lancamentos", d.v), { pulos: arrayRemove(S.mes) }).catch(errH); },
   cardEdit(d) { S.editCard = S.editCard === d.v ? null : d.v; S.confirmId = null; render(); },
   lDel(d) { deleteDoc(doc(db, "lancamentos", d.v)).catch(errH); S.confirmId = null; render(); },
   lTerc(d) { const l = S.lanc.find((x) => x.id === d.v); if (l) updateDoc(doc(db, "lancamentos", d.v), { terceiros: !l.terceiros }).catch(errH); },
