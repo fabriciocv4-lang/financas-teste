@@ -41,7 +41,7 @@ const dateLong = (iso) => { const [y, m, d] = parts(iso); return DOW[new Date(y,
 const dateShort = (iso) => { const [, m, d] = parts(iso); return pad(d) + " " + ABR[m - 1]; };
 
 // ---------- estado ----------
-const newForm = () => ({ pp: null, modo: "total", tipo: "despesa", data: todayISO(), pay: "cartao", card: "var", conta: "marido", valor: "", n: 1, terc: false, cat: "Mercado", desc: "" });
+const newForm = () => ({ pp: null, modo: "total", recc: false, tipo: "despesa", data: todayISO(), pay: "cartao", card: "var", conta: "marido", valor: "", n: 1, terc: false, cat: "Mercado", desc: "" });
 const S = {
   user: null, ready: false, view: "resumo", menu: false, mes: 0, fixos: [], pagos: {}, cfg: {}, selDay: 0, payAsk: null, editFix: false, editCard: null,
   lanc: [], base: { marido: 0, esposa: 0 }, online: navigator.onLine,
@@ -99,13 +99,14 @@ function calc() {
   const isCard = !rec && f.pay === "cartao";
   const minN = f.card === "parc" ? 2 : 1;
   const showN = isCard && f.card !== "var";
-  const n = showN ? Math.max(minN, f.n || 1) : 1;
-  const porParcela = showN && n > 1 && f.modo === "parcela";
+  const recc = showN && !!f.recc;
+  const n = recc ? 1 : showN ? Math.max(minN, f.n || 1) : 1;
+  const porParcela = !recc && showN && n > 1 && f.modo === "parcela";
   const entrada = parse(f.valor);
   const total = porParcela ? rnd(entrada * n) : entrada;
   const per = porParcela ? rnd(entrada) : Math.floor((total * 100) / n) / 100;
   const am = cycleIdx(f.data), start = f.pp != null ? f.pp - 1 : am;
-  return { rec, isCard, isPix: !rec && f.pay === "pix", total, minN, showN, n, per, am, start, porParcela };
+  return { rec, isCard, isPix: !rec && f.pay === "pix", total, minN, showN, n, per, am, start, porParcela, recc };
 }
 function previewText() {
   const f = S.f, c = calc();
@@ -115,6 +116,7 @@ function previewText() {
   if (c.isPix) return [c.total ? `Pix em ${dl}: sai direto da conta ${conta}.` : "Digite o valor para ver de onde esse Pix sai.", "Não usa limite de cartão nem orçamento variável. Reduz o saldo da conta."];
   if (!c.total) return ["Digite o valor para ver em qual fatura essa compra cai.", "Cartões fecham dia 30."];
   const mes = MESES[c.am % 12];
+  if (c.recc) return [`${brl(c.total)} todo mês, a partir da fatura que vence ${dueLabel(c.start, 0, diaVenc(f.card))}. Sem data para acabar.`, f.terc ? "De terceiros: usa a fatura, mas não entra nas contas do casal." : "Não usa o limite do cartão. Soma nos gastos fixos até ser excluída."];
   if (c.n === 1) {
     const a = `Entra na fatura de ${mes}, que vence ${dueLabel(c.am, 0, diaVenc(f.card))}.`;
     if (f.terc) return [a, "De terceiros: usa o limite do cartão, mas não entra nas contas do casal."];
@@ -186,9 +188,13 @@ function lancarView() {
     <div class="wrap">${[10, 20, 50, 100, 200].map((q) => `<button class="chip q" data-act="quick" data-v="${q}">+ ${q}</button>`).join("")}</div>
     <p class="sub">Toque nos botões para somar direto no valor. Também dá para digitar.</p></div>`;
   if (c.showN) {
-    h += `<div class="step"><span class="lbl">${f.card === "parc" ? "Parcelas (mínimo 2x)" : "À vista ou parcelado"}</span><div class="step"><button data-act="nDec" aria-label="Menos uma parcela">−</button><b id="nLabel" style="min-width:64px;text-align:center;font-size:18px">${c.n === 1 ? "À vista" : c.n + "x"}</b><button data-act="nInc" aria-label="Mais uma parcela">+</button></div></div>`;
-    if (c.n > 1) h += `<div style="display:flex;flex-direction:column;gap:6px"><span class="lbl">O valor digitado é:</span><div class="grid2">${opt("modo", 'data-v="total"', "Valor total", !c.porParcela)}${opt("modo", 'data-v="parcela"', "Valor da parcela", c.porParcela)}</div><p class="sub" id="modoInfo">${c.total > 0 ? (c.porParcela ? "Total da compra: " + brl(c.total) : c.n + "x de " + brl(c.per)) : ""}</p></div>
-      <div style="display:flex;flex-direction:column;gap:6px"><span class="lbl">Primeiro pagamento:</span><div class="step"><button data-act="ppMenos" aria-label="Mês anterior">‹</button><b style="flex:1;text-align:center;font-size:16px">${mLabel(c.start + 1)}</b><button data-act="ppMais" aria-label="Próximo mês">›</button></div><p class="sub">Mês em que a primeira parcela é paga${f.pp == null ? " (automático pela data da compra)" : ""}.${f.pp != null ? ' <button class="link" style="min-height:36px" data-act="ppAuto">Voltar ao automático</button>' : ""}</p></div>`;
+    h += `<div class="step"><div><div style="font-size:14px;font-weight:600">Cobrança recorrente</div><p class="sub">Assinatura ou conta que o cartão cobra todo mês. Sem número de parcelas e sem usar o limite.</p></div><button data-act="recc" role="switch" aria-checked="${c.recc}" aria-label="Cobrança recorrente" style="width:52px;height:32px;border-radius:16px;border:0;background:${c.recc ? "#0B7A5C" : "#7C8EA8"};position:relative;cursor:pointer;flex:none"><span style="position:absolute;top:3px;left:${c.recc ? 23 : 3}px;width:26px;height:26px;border-radius:13px;background:#fff"></span></button></div>`;
+    const ppHtml = `<div style="display:flex;flex-direction:column;gap:6px"><span class="lbl">Primeiro pagamento:</span><div class="step"><button data-act="ppMenos" aria-label="Mês anterior">‹</button><b style="flex:1;text-align:center;font-size:16px">${mLabel(c.start + 1)}</b><button data-act="ppMais" aria-label="Próximo mês">›</button></div><p class="sub">Mês em que a primeira parcela é paga${f.pp == null ? " (automático pela data da compra)" : ""}.${f.pp != null ? ' <button class="link" style="min-height:36px" data-act="ppAuto">Voltar ao automático</button>' : ""}</p></div>`;
+    if (c.recc) h += ppHtml;
+    else {
+      h += `<div class="step"><span class="lbl">${f.card === "parc" ? "Parcelas (mínimo 2x)" : "À vista ou parcelado"}</span><div class="step"><button data-act="nDec" aria-label="Menos uma parcela">−</button><b id="nLabel" style="min-width:64px;text-align:center;font-size:18px">${c.n === 1 ? "À vista" : c.n + "x"}</b><button data-act="nInc" aria-label="Mais uma parcela">+</button></div></div>`;
+      if (c.n > 1) { h += `<div style="display:flex;flex-direction:column;gap:6px"><span class="lbl">O valor digitado é:</span><div class="grid2">${opt("modo", 'data-v="total"', "Valor total", !c.porParcela)}${opt("modo", 'data-v="parcela"', "Valor da parcela", c.porParcela)}</div><p class="sub" id="modoInfo">${c.total > 0 ? (c.porParcela ? "Total da compra: " + brl(c.total) : c.n + "x de " + brl(c.per)) : ""}</p></div>`; h += ppHtml; }
+    }
   }
   h += `</section>`;
   h += `<section class="sec"><h2>Categoria</h2><div class="wrap">${cats.map((x) => `<button class="chip${x === cat ? " on" : ""}" data-act="cat" data-v="${esc(x)}" aria-pressed="${x === cat}">${x}</button>`).join("")}</div>
@@ -208,7 +214,7 @@ function descLanc(l) {
   if (l.tipo === "receita") return `${quando} · Receita · conta ${l.conta === "marido" ? "do marido" : "da esposa"}`;
   if (l.forma === "pix") return `${quando} · Pix · conta ${l.conta === "marido" ? "do marido" : "da esposa"}`;
   const k = CARDS.find((x) => x.id === l.cartao);
-  return `${quando} · ${k ? k.name : "Cartão"}${l.n > 1 ? " · " + l.n + "x de " + brl(l.parcela) : ""}${l.terceiros ? " · terceiros" : ""}`;
+  return `${quando} · ${k ? k.name : "Cartão"}${l.recorrente ? " · recorrente" : l.n > 1 ? " · " + l.n + "x de " + brl(l.parcela) : ""}${l.terceiros ? " · terceiros" : ""}`;
 }
 function itemHTML(l, withDelete) {
   const sinal = l.tipo === "receita" ? "+ " : "- ";
@@ -278,7 +284,9 @@ function itensCartao(cid, M) {
   const out = [];
   for (const l of S.lanc) {
     if (l.forma !== "cartao" || l.cartao !== cid) continue;
-    const a = startIdx(l), n = l.n || 1, k = M - a;
+    const a = startIdx(l), k = M - a;
+    if (l.recorrente) { if (k >= 0) out.push({ l, k, n: 0, rec: true, valor: l.total }); continue; }
+    const n = l.n || 1;
     if (k >= 0 && k < n) out.push({ l, k, n, valor: n > 1 ? l.parcela : l.total });
   }
   return out;
@@ -291,7 +299,7 @@ function faturaDe(cid, M) {
 function usoCartao(cid) {
   let nos = 0, ter = 0;
   S.lanc.forEach((l) => {
-    if (l.forma !== "cartao" || l.cartao !== cid) return;
+    if (l.forma !== "cartao" || l.cartao !== cid || l.recorrente) return;
     const a = startIdx(l), n = l.n || 1, v = n > 1 ? l.parcela : l.total;
     for (let k = 0; k < n; k++) if (!S.pagos["fatura_" + cid + "_" + (a + k)]) { if (l.terceiros) ter += v; else nos += v; }
   });
@@ -300,7 +308,7 @@ function usoCartao(cid) {
 const fixoPago = (f, M) => S.pagos["fixo_" + f.id + "_" + M];
 function parcelasNossas(M) {
   let s = 0;
-  ["parc", "comp"].forEach((c) => itensCartao(c, M).forEach((x) => { if (x.n > 1 && !x.l.terceiros) s += x.valor; }));
+  ["parc", "comp"].forEach((c) => itensCartao(c, M).forEach((x) => { if ((x.n > 1 || x.rec) && !x.l.terceiros) s += x.valor; }));
   return rnd(s);
 }
 function mesCalc(M) {
@@ -363,9 +371,9 @@ function fixosView() {
   if (S.editFix) h += `<button class="opt" data-act="fixAdd">+ Adicionar gasto fixo</button>`;
   h += `<button class="opt" data-act="fixEdit" style="${S.editFix ? "background:var(--navy);color:#fff" : ""}">${S.editFix ? "Concluir edição" : "Editar gastos fixos"}</button></section>`;
   const ps = [];
-  ["parc", "comp"].forEach((cid) => itensCartao(cid, M).forEach((x) => { if (x.n > 1) ps.push({ ...x, cid }); }));
+  ["parc", "comp"].forEach((cid) => itensCartao(cid, M).forEach((x) => { if (x.n > 1 || x.rec) ps.push({ ...x, cid }); }));
   h += `<section class="sec"><div class="step"><h2 style="font-size:15px">Parcelados no cartão</h2><b style="font-variant-numeric:tabular-nums">${brl(c.parc)}</b></div>`;
-  h += ps.length ? ps.map((x) => `<div class="item"><div><b>${esc(x.l.descricao || x.l.categoria)}</b><small>Parcela ${x.k + 1} de ${x.n} · ${CARDS.find((k) => k.id === x.cid).name}${x.l.terceiros ? " · terceiros (fora do total)" : ""}</small></div><b style="font-variant-numeric:tabular-nums">${brl(x.valor)}</b></div>`).join("") : '<p class="sub">Nenhuma parcela neste mês.</p>';
+  h += ps.length ? ps.map((x) => `<div class="item"><div><b>${esc(x.l.descricao || x.l.categoria)}</b><small>${x.rec ? "Recorrente, todo mês" : "Parcela " + (x.k + 1) + " de " + x.n} · ${CARDS.find((k) => k.id === x.cid).name}${x.l.terceiros ? " · terceiros (fora do total)" : ""}</small></div><b style="font-variant-numeric:tabular-nums">${brl(x.valor)}</b></div>`).join("") : '<p class="sub">Nenhuma parcela neste mês.</p>';
   h += `<button class="opt" data-act="go" data-v="cartoes">Ver nos cartões</button></section>`;
   return h;
 }
@@ -388,14 +396,14 @@ function cartaoSection(k) {
     const l = x.l, nome = l.descricao || l.categoria;
     if (ed) {
       if (S.confirmId === l.id) { h += confDel(l.id, nome, "lDel"); return; }
-      h += `<div style="display:flex;flex-direction:column;gap:6px;border-top:1px solid var(--line);padding-top:10px"><div style="display:grid;grid-template-columns:minmax(0,1fr) 104px 44px;gap:6px;align-items:center"><input class="in" style="height:48px;font-size:15px" id="l-${l.id}-d" data-l="desc" data-id="${l.id}" value="${esc(nome)}" aria-label="Descrição"><input class="in" style="height:48px;font-size:15px" id="l-${l.id}-v" inputmode="decimal" data-l="valor" data-id="${l.id}" value="${fmtNum(l.total)}" aria-label="Valor total da compra"><button class="link del" style="padding:0" data-act="delAsk" data-v="${l.id}" aria-label="Excluir ${esc(nome)}">✕</button></div>
-        <button class="opt" style="min-height:44px;font-size:13px" data-act="lTerc" data-v="${l.id}" aria-pressed="${!!l.terceiros}">${l.terceiros ? "De terceiros (toque para marcar como nosso)" : "Nosso (toque para marcar como de terceiros)"}</button>${x.n > 1 ? `<div class="step"><span class="lbl">Primeiro pagamento</span><div class="step"><button data-act="lPP" data-v="${l.id}|-1" aria-label="Mês anterior">‹</button><b style="min-width:120px;text-align:center;font-size:14px">${mLabel(startIdx(l) + 1)}</b><button data-act="lPP" data-v="${l.id}|1" aria-label="Próximo mês">›</button></div></div>` : ""}</div>`;
+      h += `<div style="display:flex;flex-direction:column;gap:6px;border-top:1px solid var(--line);padding-top:10px"><div style="display:grid;grid-template-columns:minmax(0,1fr) 104px 44px;gap:6px;align-items:center"><input class="in" style="height:48px;font-size:15px" id="l-${l.id}-d" data-l="desc" data-id="${l.id}" value="${esc(nome)}" aria-label="Descrição"><input class="in" style="height:48px;font-size:15px" id="l-${l.id}-v" inputmode="decimal" data-l="valor" data-id="${l.id}" value="${fmtNum(l.total)}" aria-label="${x.rec ? "Valor mensal" : "Valor total da compra"}"><button class="link del" style="padding:0" data-act="delAsk" data-v="${l.id}" aria-label="Excluir ${esc(nome)}">✕</button></div>
+        <button class="opt" style="min-height:44px;font-size:13px" data-act="lTerc" data-v="${l.id}" aria-pressed="${!!l.terceiros}">${l.terceiros ? "De terceiros (toque para marcar como nosso)" : "Nosso (toque para marcar como de terceiros)"}</button>${x.n > 1 || x.rec ? `<div class="step"><span class="lbl">Primeiro pagamento</span><div class="step"><button data-act="lPP" data-v="${l.id}|-1" aria-label="Mês anterior">‹</button><b style="min-width:120px;text-align:center;font-size:14px">${mLabel(startIdx(l) + 1)}</b><button data-act="lPP" data-v="${l.id}|1" aria-label="Próximo mês">›</button></div></div>` : ""}</div>`;
       return;
     }
-    h += `<div class="item"><div><b>${esc(nome)}</b><small>${esc(dateShort(l.data))}${x.n > 1 ? " · parcela " + (x.k + 1) + "/" + x.n + " (total " + brl(l.total) + ")" : ""}${l.terceiros ? " · de terceiros" : " · nosso"}</small></div><b style="font-variant-numeric:tabular-nums">${brl(x.valor)}</b></div>`;
+    h += `<div class="item"><div><b>${esc(nome)}</b><small>${esc(dateShort(l.data))}${x.rec ? " · recorrente, todo mês" : x.n > 1 ? " · parcela " + (x.k + 1) + "/" + x.n + " (total " + brl(l.total) + ")" : ""}${l.terceiros ? " · de terceiros" : " · nosso"}</small></div><b style="font-variant-numeric:tabular-nums">${brl(x.valor)}</b></div>`;
   });
   h += `<button class="opt" data-act="cardEdit" data-v="${k.id}" style="${ed ? "background:var(--navy);color:#fff" : ""}">${ed ? "Concluir edição" : "Editar lançamentos"}</button>`;
-  if (ed) h += `<p class="sub">Mudanças valem para a compra inteira, em todas as parcelas. Compras novas, só pela aba Lançar.</p>`;
+  if (ed) h += `<p class="sub">Mudanças valem para a compra inteira (todas as parcelas) ou, nas recorrentes, para todos os meses. Excluir apaga a compra inteira. Compras novas, só pela aba Lançar.</p>`;
   return h + `</section>`;
 }
 function cartoesView() { return CARDS.map(cartaoSection).join(""); }
@@ -646,9 +654,10 @@ const act = {
   tipo(d) { S.f.tipo = d.v; S.f.cat = d.v === "receita" ? CATS_R[0] : CATS_D[0]; S.saved = ""; render(); },
   pay(d) { S.f.pay = d.v; S.saved = ""; render(); },
   conta(d) { S.f.conta = d.v; render(); },
-  card(d) { S.f.card = d.v; S.f.n = d.v === "parc" ? Math.max(2, S.f.n) : S.f.n; if (d.v === "var") S.f.n = 1; S.saved = ""; render(); },
+  card(d) { S.f.card = d.v; S.f.n = d.v === "parc" ? Math.max(2, S.f.n) : S.f.n; if (d.v === "var") { S.f.n = 1; S.f.recc = false; } S.saved = ""; render(); },
   cat(d) { S.f.cat = d.v; render(); },
   terc() { S.f.terc = !S.f.terc; render(); },
+  recc() { S.f.recc = !S.f.recc; render(); },
   modo(d) { S.f.modo = d.v; render(); },
   ppMenos() { const c = calc(); S.f.pp = c.start; render(); },
   ppMais() { const c = calc(); S.f.pp = c.start + 2; render(); },
@@ -672,7 +681,7 @@ const act = {
     const d = {
       tipo: f.tipo, forma: c.rec ? "conta" : f.pay, cartao: c.isCard ? f.card : null,
       conta: c.rec || c.isPix ? f.conta : null, total: Math.round(c.total * 100) / 100,
-      n: c.n, parcela: c.per, primeiro: c.n > 1 ? c.start : null, categoria, descricao: f.desc.trim(), data: f.data,
+      n: c.recc ? 0 : c.n, recorrente: c.recc || null, parcela: c.per, primeiro: c.n > 1 || c.recc ? c.start : null, categoria, descricao: f.desc.trim(), data: f.data,
       terceiros: !!(c.isCard && f.terc), por: S.user.email, criadoEm: serverTimestamp(),
     };
     addDoc(collection(db, "lancamentos"), d).catch((e) => { S.dataErr = e.message; render(); });
@@ -680,6 +689,7 @@ const act = {
     const o = d.descricao || categoria;
     S.saved = c.rec ? `${o}: receita de ${brl(d.total)} na conta ${f.conta === "marido" ? "do marido" : "da esposa"}${quando}.`
       : c.isPix ? `${o}: ${brl(d.total)} no Pix, da conta ${f.conta === "marido" ? "do marido" : "da esposa"}${quando}.`
+      : c.recc ? `${o}: ${brl(d.total)} todo mês, recorrente, no ${CARDS.find((k) => k.id === f.card).short}${quando}.`
       : `${o}: ${brl(d.total)} ${c.n === 1 ? "à vista" : c.n + "x de " + brl(c.per)} no ${CARDS.find((k) => k.id === f.card).short}${quando}${d.terceiros ? ", como de terceiros" : ""}.`;
     S.f = { ...newForm(), pp: null, modo: f.modo, tipo: f.tipo, pay: f.pay, card: f.card, conta: f.conta, cat: categoria, n: f.card === "parc" ? 2 : 1 };
     scrollTo(0, 0); render();
